@@ -1,0 +1,17 @@
+{
+  "name": "cc-hook-log-dev",
+  "owner": {
+    "name": "Danny Coates"
+  },
+  "metadata": {
+    "description": "Marketplace for the cc-hook-log debugging plugin"
+  },
+  "plugins": [
+    {
+      "name": "cc-hook-log",
+      "source": "./",
+      "description": "Logs all Claude Code hook events to NDJSON files in /tmp/cc-hook-debug/",
+      "version": "1.0.0"
+    }
+  ]
+}
