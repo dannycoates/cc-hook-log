@@ -7,7 +7,6 @@
 # Pipes through pretty-hooks.sh automatically.
 
 set -uo pipefail
-trap '' PIPE
 
 LOG_DIR="${CC_HOOK_LOG_DIR:-/tmp/cc-hook-debug}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -29,9 +28,9 @@ mkdir -p "$LOG_DIR"
 # Track tail PIDs so we can clean up
 declare -A TAILS
 cleanup() {
-  for pid in "${TAILS[@]}"; do
-    kill "$pid" 2>/dev/null
-  done
+  trap '' INT TERM   # Ignore signals during cleanup
+  kill 0 2>/dev/null # Kill all processes in our group
+  wait 2>/dev/null
   exit 0
 }
 trap cleanup INT TERM

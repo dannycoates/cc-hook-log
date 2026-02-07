@@ -24,6 +24,7 @@ BLUE='\033[34m'
 MAGENTA='\033[35m'
 CYAN='\033[36m'
 WHITE='\033[37m'
+BLACK='\033[30m'
 BG_RED='\033[41m'
 BG_GREEN='\033[42m'
 BG_YELLOW='\033[43m'
@@ -31,29 +32,26 @@ BG_BLUE='\033[44m'
 BG_MAGENTA='\033[45m'
 BG_CYAN='\033[46m'
 
-MAX_WIDTH=${COLUMNS:-120}
+MAX_WIDTH=${COLUMNS:-$(tput cols 2>/dev/null || echo 120)}
 TRUNCATE=${PRETTY_HOOKS_TRUNCATE:-300}
 
 # Map event names to colored badges
 badge() {
   local event="$1"
+  local tool="${2:-}"
+  local bg fg
   case "$event" in
-    SessionStart)       printf "${BG_GREEN}${WHITE}${BOLD} SESSION START ${RST}" ;;
-    SessionEnd)         printf "${BG_RED}${WHITE}${BOLD} SESSION END ${RST}" ;;
-    UserPromptSubmit)   printf "${BG_BLUE}${WHITE}${BOLD} PROMPT ${RST}" ;;
-    PreToolUse)         printf "${BG_CYAN}${WHITE}${BOLD} TOOL >>> ${RST}" ;;
-    PostToolUse)        printf "${BG_MAGENTA}${WHITE}${BOLD} TOOL <<< ${RST}" ;;
-    PostToolUseFailure) printf "${BG_RED}${WHITE}${BOLD} TOOL ERR ${RST}" ;;
-    Stop)               printf "${BG_YELLOW}${WHITE}${BOLD} STOP ${RST}" ;;
-    SubagentStart)      printf "${BG_CYAN}${WHITE}${BOLD} AGENT >>> ${RST}" ;;
-    SubagentStop)       printf "${BG_MAGENTA}${WHITE}${BOLD} AGENT <<< ${RST}" ;;
-    Notification)       printf "${BG_YELLOW}${WHITE}${BOLD} NOTIFY ${RST}" ;;
-    PermissionRequest)  printf "${BG_YELLOW}${WHITE}${BOLD} PERM? ${RST}" ;;
-    PreCompact)         printf "${BG_YELLOW}${WHITE}${BOLD} COMPACT ${RST}" ;;
-    TeammateIdle)       printf "${BG_YELLOW}${WHITE}${BOLD} IDLE ${RST}" ;;
-    TaskCompleted)      printf "${BG_GREEN}${WHITE}${BOLD} TASK DONE ${RST}" ;;
-    *)                  printf "${BG_BLUE}${WHITE}${BOLD} %-14s ${RST}" "$event" ;;
+    PreToolUse)         printf "${BG_CYAN}${BLACK}${BOLD} %s >>> ${RST}" "${tool:-TOOL}"; return ;;
+    PostToolUse)        printf "${BG_MAGENTA}${WHITE}${BOLD} %s <<< ${RST}" "${tool:-TOOL}"; return ;;
+    PostToolUseFailure) printf "${BG_RED}${WHITE}${BOLD} %s ERR ${RST}" "${tool:-TOOL}"; return ;;
+    SessionStart|TaskCompleted)                                        bg=$BG_GREEN;   fg=$BLACK ;;
+    SessionEnd)                                                        bg=$BG_RED;     fg=$WHITE ;;
+    SubagentStart)                                                     bg=$BG_CYAN;    fg=$BLACK ;;
+    SubagentStop)                                                      bg=$BG_MAGENTA; fg=$WHITE ;;
+    Stop|Notification|PermissionRequest|PreCompact|TeammateIdle)       bg=$BG_YELLOW;  fg=$BLACK ;;
+    *)                                                                 bg=$BG_BLUE;    fg=$WHITE ;;
   esac
+  printf "${bg}${fg}${BOLD} %s ${RST}" "$event"
 }
 
 # Truncate a string to N chars, adding ... if truncated
@@ -113,10 +111,13 @@ while IFS= read -r line; do
 
   event=$(echo "$line" | jq -r '.hook_event_name // "unknown"')
   session=$(echo "$line" | jq -r '.session_id // ""' | cut -c1-8)
+  tool_name=$(echo "$line" | jq -r '.tool_name // ""')
 
-  # Print badge and session
+  # Buffer all output for this event, then write at once to prevent
+  # interleaving when multiple sessions are tailed concurrently
+  _out=$(
   sep
-  printf "$(badge "$event") ${DIM}session:${RST}${YELLOW}%s${RST}\n" "$session"
+  printf "$(badge "$event" "$tool_name") ${DIM}session:${RST}${YELLOW}%s${RST}\n" "$session"
 
   case "$event" in
     SessionStart)
@@ -141,7 +142,6 @@ while IFS= read -r line; do
       tool=$(echo "$line" | jq -r '.tool_name // ""')
       input=$(echo "$line" | jq -r '.tool_input // "" | if type == "object" then tojson else . end')
       # For common tools, show a compact summary
-      cfield "tool" "$tool" "${BOLD}${CYAN}"
       case "$tool" in
         Bash)
           cmd=$(echo "$line" | jq -r '.tool_input.command // ""')
@@ -190,19 +190,15 @@ while IFS= read -r line; do
       ;;
 
     PostToolUse)
-      tool=$(echo "$line" | jq -r '.tool_name // ""')
       stdout=$(echo "$line" | jq -r '.tool_response.stdout // ""')
       stderr=$(echo "$line" | jq -r '.tool_response.stderr // ""')
-      cfield "tool" "$tool" "${BOLD}${MAGENTA}"
       [ -n "$stdout" ] && [ "$stdout" != "null" ] && codeblock "stdout" "$stdout" "$GREEN"
       [ -n "$stderr" ] && [ "$stderr" != "null" ] && codeblock "stderr" "$stderr" "$RED"
       ;;
 
     PostToolUseFailure)
-      tool=$(echo "$line" | jq -r '.tool_name // ""')
       error=$(echo "$line" | jq -r '.error // ""')
       is_interrupt=$(echo "$line" | jq -r '.is_interrupt // false')
-      cfield "tool" "$tool" "${BOLD}${RED}"
       codeblock "error" "$error" "$RED"
       [ "$is_interrupt" = "true" ] && cfield "interrupted" "yes" "$YELLOW"
       ;;
@@ -282,4 +278,6 @@ while IFS= read -r line; do
       echo "$line" | jq -C . 2>/dev/null || echo "$line"
       ;;
   esac
+  )
+  printf '%s\n' "$_out"
 done
