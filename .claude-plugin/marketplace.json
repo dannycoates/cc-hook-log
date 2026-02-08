@@ -11,7 +11,7 @@
       "name": "cc-hook-log",
       "source": "./",
       "description": "Logs all Claude Code hook events to NDJSON files in /tmp/cc-hook-debug/",
-      "version": "1.0.0"
+      "version": "1.0.1"
     }
   ]
 }
