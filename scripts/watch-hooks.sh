@@ -3,7 +3,7 @@
 # Usage: watch-hooks.sh                    # watch all sessions
 #        watch-hooks.sh <session-prefix>   # watch matching sessions
 #
-# Requires: inotifywait (inotify-tools), jq
+# Requires: fswatch (macOS) or inotifywait (Linux), jq
 # Pipes through pretty-hooks.sh automatically.
 
 set -uo pipefail
@@ -13,13 +13,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRETTY="$SCRIPT_DIR/pretty-hooks.sh"
 FILTER="${1:-}"
 
-if ! command -v inotifywait &>/dev/null; then
-  echo "Error: inotifywait is required. Install it with: sudo apt install inotify-tools" >&2
+if [ ! -x "$PRETTY" ]; then
+  echo "Error: pretty-hooks.sh not found at $PRETTY" >&2
   exit 1
 fi
 
-if [ ! -x "$PRETTY" ]; then
-  echo "Error: pretty-hooks.sh not found at $PRETTY" >&2
+# Detect file watcher
+if command -v fswatch &>/dev/null; then
+  WATCHER=fswatch
+elif command -v inotifywait &>/dev/null; then
+  WATCHER=inotifywait
+else
+  echo "Error: No file watcher found." >&2
+  echo "  macOS:  brew install fswatch" >&2
+  echo "  Linux:  sudo apt install inotify-tools" >&2
   exit 1
 fi
 
@@ -59,6 +66,12 @@ for f in "$LOG_DIR"/*.jsonl; do
 done
 
 # Watch for new files
-inotifywait -m -q -e create -e moved_to --format '%f' "$LOG_DIR" | while IFS= read -r name; do
-  [[ "$name" == *.jsonl ]] && tail_file "$LOG_DIR/$name"
-done
+if [ "$WATCHER" = "fswatch" ]; then
+  fswatch --event Created -0 "$LOG_DIR" | while IFS= read -r -d '' path; do
+    [[ "$path" == *.jsonl ]] && tail_file "$path"
+  done
+else
+  inotifywait -m -q -e create -e moved_to --format '%f' "$LOG_DIR" | while IFS= read -r name; do
+    [[ "$name" == *.jsonl ]] && tail_file "$LOG_DIR/$name"
+  done
+fi
